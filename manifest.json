@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Reonomy Side Panel",
+  "version": "0.1.0",
+  "description": "Reads property listing info from reonomy.com and displays it in a side panel.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://app.reonomy.com/*",
+    "https://www.truepeoplesearch.com/*",
+    "https://www.familytreenow.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "people_search_headers",
+        "enabled": true,
+        "path": "src/people_search_rules.json"
+      }
+    ]
+  },
+  "action": {
+    "default_title": "Open Reonomy Side Panel"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.reonomy.com/*/property/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
