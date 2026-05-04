@@ -6,10 +6,12 @@ import type {
   ScrapePayload,
 } from "../types";
 import {
+  addressLookupKey,
   contactLookupKey,
   searchByAddress,
   searchPerson,
 } from "../lib/peopleSearch";
+import { getCached } from "../lib/peopleSearchCache";
 
 export type EnrichmentMap = Map<string, EnrichmentResult | "pending">;
 
@@ -66,7 +68,32 @@ function collectTargets(payload: ScrapePayload | null): Target[] {
   return targets;
 }
 
-export function useEnrichments(payload: ScrapePayload | null): EnrichmentMap {
+// Probe the cache to see if every enrichment target for this property is
+// already a successful cache hit. App.tsx uses this to skip the manual
+// "Find contacts" button when re-visiting a property whose lookups have
+// already run — cache hits don't fetch, so re-enriching is free.
+export async function allTargetsCached(
+  payload: ScrapePayload | null
+): Promise<boolean> {
+  if (!payload) return false;
+  const targets = collectTargets(payload);
+  if (targets.length > 0) {
+    for (const t of targets) {
+      const cached = await getCached(t.key);
+      if (!cached) return false;
+    }
+    return true;
+  }
+  const addr = fallbackAddress(payload);
+  if (!addr) return false;
+  const cached = await getCached(addressLookupKey(addr));
+  return !!cached;
+}
+
+export function useEnrichments(
+  payload: ScrapePayload | null,
+  enabled: boolean
+): EnrichmentMap {
   const [map, setMap] = useState<EnrichmentMap>(() => new Map());
   // Synchronous in-flight set — setMap("pending") is async, so without this
   // multiple effect runs landing in the same tick all see undefined and
@@ -102,6 +129,7 @@ export function useEnrichments(payload: ScrapePayload | null): EnrichmentMap {
   }, [payload?.url]);
 
   useEffect(() => {
+    if (!enabled) return;
     const targets = collectTargets(payload);
     if (targets.length === 0) return;
 
@@ -171,12 +199,13 @@ export function useEnrichments(payload: ScrapePayload | null): EnrichmentMap {
     };
     pump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payload?.url, payload?.scrapedAt]);
+  }, [payload?.url, payload?.scrapedAt, enabled]);
 
   // Address fallback: if there are no person contacts to enrich (typical of
   // LLC-owned CRE), pivot on the property's recorded mailing address and let
   // FTN's reverse-address search surface a likely human resident.
   useEffect(() => {
+    if (!enabled) return;
     if (!payload?.ownership) return;
     if (collectTargets(payload).length > 0) return;
     const addr = fallbackAddress(payload);
@@ -218,7 +247,7 @@ export function useEnrichments(payload: ScrapePayload | null): EnrichmentMap {
         });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payload?.url, payload?.scrapedAt]);
+  }, [payload?.url, payload?.scrapedAt, enabled]);
 
   return map;
 }

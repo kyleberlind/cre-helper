@@ -1,34 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "Reonomy Side Panel",
-  "version": "0.1.0",
-  "description": "Reads property listing info from reonomy.com and displays it in a side panel.",
+  "name": "Reality Commercial Real Estate Helper",
+  "short_name": "Reality",
+  "version": "1.0.0",
+  "description": "Side panel for Reonomy property pages: surfaces owner contact info from public people-search sites with one click.",
+  "author": { "email": "kyberlind@gmail.com" },
+  "homepage_url": "https://textyle.io/privacy",
   "minimum_chrome_version": "114",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png",
+    "256": "icons/icon-256.png",
+    "512": "icons/icon-512.png"
+  },
   "permissions": [
     "sidePanel",
     "activeTab",
     "scripting",
     "storage",
     "tabs",
-    "webNavigation",
-    "declarativeNetRequestWithHostAccess"
+    "webNavigation"
   ],
   "host_permissions": [
     "https://app.reonomy.com/*",
     "https://www.truepeoplesearch.com/*",
     "https://www.familytreenow.com/*"
   ],
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "people_search_headers",
-        "enabled": true,
-        "path": "src/people_search_rules.json"
-      }
-    ]
-  },
   "action": {
-    "default_title": "Open Reonomy Side Panel"
+    "default_title": "Open Reality side panel",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "background": {
     "service_worker": "src/background.js",

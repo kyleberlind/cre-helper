@@ -53,10 +53,7 @@ src/
 2. The side panel auto-opens. It refreshes on every sub-tab change (Building / Ownership / Sales / etc.) and when you switch between Chrome tabs.
 3. Owner data scraped from `/ownership` is cached per-property in `chrome.storage.local`, so it stays visible when you click over to other sub-tabs.
 
-Two tabs:
-
-- **Owners** — owner cards (phones, emails, addresses) plus the Reported Owner block.
-- **Raw** — full scrape payload as JSON for debugging.
+The side panel shows owner cards (phones, emails, addresses) and the Reported Owner block. Click **Find contacts** on the CTA strip to fan out lookups against TruePeopleSearch and FamilyTreeNow; results cache to `chrome.storage.local` so re-visiting a property short-circuits the network calls and shows a green "Contacts found" badge.
 
 ## Requirements
 
@@ -65,6 +62,6 @@ Two tabs:
 
 ## Notes
 
-- Reonomy's DOM isn't a public contract, so the parser uses generic structural signals (labeled key/value pairs, definition lists, tables, page text). If a specific field is missing from **Owners**, the **Raw** tab will show what was scraped.
-- Host permissions are scoped to `https://app.reonomy.com/*`.
-- No icons bundled — Chrome shows a default puzzle-piece. Add PNGs and an `icons` block to `manifest.json` if you want custom art.
+- Reonomy's DOM isn't a public contract, so the parser uses generic structural signals (labeled key/value pairs, definition lists, tables, page text).
+- Host permissions cover `app.reonomy.com`, `www.truepeoplesearch.com`, and `www.familytreenow.com`. The latter two are visited as hidden tabs only when you click **Find contacts**.
+- Icons live in `public/icons/` and ship to `dist/icons/` via `@crxjs/vite-plugin`'s `public/` copy.

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ScrapePayload } from "./types";
 import { OwnersView } from "./components/OwnersView";
-import { useEnrichments } from "./hooks/useEnrichments";
-
-type Tab = "owners" | "raw";
+import { allTargetsCached, useEnrichments } from "./hooks/useEnrichments";
 
 interface RequestScrapeResponse {
   ok: boolean;
@@ -19,9 +17,35 @@ interface PanelUpdate {
 
 export default function App() {
   const [payload, setPayload] = useState<ScrapePayload | null>(null);
-  const [tab, setTab] = useState<Tab>("owners");
   const [error, setError] = useState<string | null>(null);
-  const enrichments = useEnrichments(payload);
+  // Gate the people-search lookups behind an explicit user click. Auto-running
+  // on every property page burns captcha quota and blasts the IP rate-limit
+  // window for properties the user is just glancing at. Resets to false on
+  // every property-URL change so each property requires its own opt-in.
+  const [enriching, setEnriching] = useState(false);
+  // True when this property's lookups were all already cached and we
+  // auto-enabled enrichment without prompting. Drives the green "Contacts
+  // loaded from cache" badge in place of the button.
+  const [autoLoaded, setAutoLoaded] = useState(false);
+  const enrichments = useEnrichments(payload, enriching);
+
+  useEffect(() => {
+    setEnriching(false);
+    setAutoLoaded(false);
+    if (!payload) return;
+    let cancelled = false;
+    (async () => {
+      const cached = await allTargetsCached(payload);
+      if (cancelled) return;
+      if (cached) {
+        setEnriching(true);
+        setAutoLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [payload?.url]);
 
   // Pull initial scrape on mount.
   useEffect(() => {
@@ -54,50 +78,13 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(listener);
   }, []);
 
-  const refresh = async () => {
-    try {
-      const resp: RequestScrapeResponse = await chrome.runtime.sendMessage({
-        type: "REONOMY_REQUEST_SCRAPE",
-      });
-      if (resp?.ok && resp.payload && !resp.payload.error) {
-        setPayload(resp.payload);
-        setError(null);
-      } else {
-        setError(resp?.error || "Could not scrape this tab.");
-      }
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const copyJson = async () => {
-    if (!payload) {
-      setError("Nothing to copy yet.");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      setError(null);
-    } catch (err) {
-      setError("Clipboard failed: " + err);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full">
-      <header className="flex items-center justify-between px-3 py-2 border-b border-neutral-200 dark:border-neutral-700 sticky top-0 bg-white dark:bg-neutral-900 z-10">
-        <div>
-          <strong className="text-sm">Reonomy</strong>
-          <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
-            Property info
-          </span>
-        </div>
-        <div className="flex gap-1">
-          <Button onClick={refresh}>Refresh</Button>
-          <Button onClick={copyJson} disabled={!payload}>
-            Copy JSON
-          </Button>
-        </div>
+      <header className="flex items-center px-3 py-2 border-b border-neutral-200 dark:border-neutral-700 sticky top-0 bg-white dark:bg-neutral-900 z-10">
+        <strong className="text-sm">Reonomy</strong>
+        <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
+          Property info
+        </span>
       </header>
 
       {error && (
@@ -106,24 +93,22 @@ export default function App() {
         </div>
       )}
 
-      <nav className="flex border-b border-neutral-200 dark:border-neutral-700 px-2 pt-2">
-        <TabButton active={tab === "owners"} onClick={() => setTab("owners")}>
-          Owners
-        </TabButton>
-        <TabButton active={tab === "raw"} onClick={() => setTab("raw")}>
-          Raw
-        </TabButton>
-      </nav>
-
       <main className="flex-1 overflow-auto p-3">
-        {tab === "owners" && (
-          <OwnersView payload={payload} enrichments={enrichments} />
+        {payload && !enriching && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2">
+            <span className="text-xs text-neutral-700 dark:text-neutral-300">
+              Look up phones, emails, and relatives for this property?
+            </span>
+            <Button onClick={() => setEnriching(true)}>Find contacts</Button>
+          </div>
         )}
-        {tab === "raw" && (
-          <pre className="text-[11px] bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded p-2 whitespace-pre-wrap break-words">
-            {payload ? JSON.stringify(payload, null, 2) : "No data yet."}
-          </pre>
+        {payload && enriching && autoLoaded && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200">
+            <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            Contacts found
+          </div>
         )}
+        <OwnersView payload={payload} enrichments={enrichments} />
       </main>
     </div>
   );
@@ -150,27 +135,3 @@ function Button({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        "px-3 py-1.5 text-xs border-b-2 -mb-px " +
-        (active
-          ? "text-neutral-900 dark:text-neutral-100 border-accent"
-          : "text-neutral-500 dark:text-neutral-400 border-transparent hover:text-neutral-700 dark:hover:text-neutral-200")
-      }
-    >
-      {children}
-    </button>
-  );
-}

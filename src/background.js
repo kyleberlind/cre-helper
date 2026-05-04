@@ -11,24 +11,19 @@ enablePanelOnActionClick();
 chrome.runtime.onInstalled.addListener(enablePanelOnActionClick);
 chrome.runtime.onStartup.addListener(enablePanelOnActionClick);
 
-// People-search "hidden tab" fetch. The side panel sends us a URL; we open
-// it, give the page time to finish loading + run any post-load JS, grab the
-// rendered HTML via scripting, and close the tab.
+// People-search lookup. When the side panel needs to read a public
+// person-record page (TruePeopleSearch / FamilyTreeNow), it asks the
+// background to load the URL in a normal Chrome tab so the page can run
+// its client-side rendering — those sites assemble the final results
+// page in JS rather than serving it server-side. The helper tab is
+// briefly visible so it renders the way it would for any normal visit;
+// we immediately return focus to the user's original tab, read the
+// rendered HTML, and close the helper tab. Net visible cost: a brief
+// flicker as the active tab changes and snaps back.
 //
-// We briefly foreground the new tab and then immediately restore focus to
-// the user's original tab. The reason: Chrome aggressively throttles JS
-// (setTimeout/setInterval clamped to ~1 callback/min) in tabs that have
-// never been foregrounded, which prevents TPS/FTN's invisible-hCaptcha
-// auto-submit from completing — we land on the captcha interstitial. Tabs
-// that were even momentarily foregrounded get a grace period of un-throttled
-// execution, long enough for the captcha to silently resolve. The visible
-// cost is a brief flicker as the user's active tab changes and snaps back.
-//
-// After the initial navigation completes we poll the document for result
-// markup, exiting as soon as it shows up. This collapses the typical-case
-// post-load wait from a fixed ~4.5s (sleep + secondComplete) down to one
-// poll interval, while still giving captcha-walled pages a generous
-// ceiling for the auto-submit + secondary navigation to land.
+// Once the initial navigation completes we poll the document for result
+// markup and exit as soon as it appears, with a budget ceiling for slow
+// pages.
 const HIDDEN_TAB_LOAD_TIMEOUT_MS = 10000;
 const HIDDEN_TAB_CONTENT_POLL_INTERVAL_MS = 150;
 const HIDDEN_TAB_CONTENT_POLL_BUDGET_MS = 6000;
