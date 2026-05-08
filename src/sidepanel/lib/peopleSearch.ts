@@ -363,7 +363,10 @@ interface SiteAdapter {
     city: string;
     state: string;
   }): string;
-  parse(html: string): EnrichmentMatch | null;
+  parse(
+    html: string,
+    args?: { first: string; last: string; city: string; state: string }
+  ): EnrichmentMatch | null;
 }
 
 // One-time diagnostic dump for TruePeopleSearch. Same idea as the FTN
@@ -750,7 +753,10 @@ const familytreenow: SiteAdapter = {
     if (cs) params.set("citystatezip", cs);
     return `https://www.familytreenow.com/search/genealogy/results?${params.toString()}`;
   },
-  parse(html: string): EnrichmentMatch | null {
+  parse(
+    html: string,
+    args?: { first: string; last: string; city: string; state: string }
+  ): EnrichmentMatch | null {
     const doc = new DOMParser().parseFromString(html, "text/html");
 
     // Result rows live in #summaryResults; each row has an anchor with class
@@ -763,65 +769,169 @@ const familytreenow: SiteAdapter = {
       )
     ).filter((a) => /[?&]rid=/.test(a.getAttribute("href") || ""));
 
-    const head = detailLinks[0];
-    if (!head) {
+    if (detailLinks.length === 0) {
       dumpFamilyTreeNowDiagnostics(doc, null);
       return null;
     }
 
-    // The anchor text is generic ("People Records" / "View Details"); the
-    // real name lives in an h2.seo-heading inside the same row, and age /
-    // location appear in labeled cells of the .table-nested next to it.
-    const row =
-      head.closest("tr") ?? head.closest(".row") ?? head.parentElement;
-    if (!row) {
-      dumpFamilyTreeNowDiagnostics(doc, head.parentElement);
-      return null;
-    }
+    // Walk every result row and collect candidates so we can rank them
+    // instead of always taking detailLinks[0]. FTN's top result is often
+    // the wrong person when the input city is malformed upstream — ranking
+    // by name + state + city, with older-age as the tiebreaker (more
+    // likely the property owner than a younger same-name relative), is
+    // sturdier than trusting FTN's own ordering.
+    const candidates: FtnCandidate[] = [];
+    for (let i = 0; i < detailLinks.length; i++) {
+      const link = detailLinks[i];
+      const row =
+        link.closest("tr") ?? link.closest(".row") ?? link.parentElement;
+      if (!row) continue;
 
-    const nameEl = row.querySelector(".seo-heading");
-    const name = textOf(nameEl);
-    if (!name) {
-      dumpFamilyTreeNowDiagnostics(doc, row);
-      return null;
-    }
+      const nameEl = row.querySelector(".seo-heading");
+      const name = textOf(nameEl);
+      if (!name) continue;
 
-    const labeledValue = (re: RegExp): string | undefined => {
-      const labels = row.querySelectorAll(".text-uppercase");
-      for (const label of Array.from(labels)) {
-        if (!re.test(textOf(label))) continue;
-        const parent = label.parentElement;
-        if (!parent) continue;
-        const cells = Array.from(parent.children);
-        const idx = cells.indexOf(label);
-        if (idx >= 0 && cells[idx + 1]) {
-          const v = textOf(cells[idx + 1]).trim();
-          if (v) return v;
+      // The anchor text is generic ("People Records" / "View Details"); the
+      // real name lives in h2.seo-heading inside the same row, and age /
+      // location appear in labeled cells of the .table-nested next to it.
+      const labeledValue = (re: RegExp): string | undefined => {
+        const labels = row.querySelectorAll(".text-uppercase");
+        for (const label of Array.from(labels)) {
+          if (!re.test(textOf(label))) continue;
+          const parent = label.parentElement;
+          if (!parent) continue;
+          const cells = Array.from(parent.children);
+          const idx = cells.indexOf(label);
+          if (idx >= 0 && cells[idx + 1]) {
+            const v = textOf(cells[idx + 1]).trim();
+            if (v) return v;
+          }
         }
-      }
-      return undefined;
-    };
+        return undefined;
+      };
 
-    const livesIn = labeledValue(/lives in/i);
-    let city = "";
-    let state = "";
-    if (livesIn) {
-      const cs = extractCityState(livesIn);
-      city = cs.city ?? "";
-      state = cs.state ?? "";
+      const livesIn = labeledValue(/lives in/i);
+      let city = "";
+      let state = "";
+      if (livesIn) {
+        const cs = extractCityState(livesIn);
+        city = cs.city ?? "";
+        state = cs.state ?? "";
+      }
+
+      const ageText = labeledValue(/^age/i);
+      const age = ageText ? extractAge(`Age ${ageText}`) : undefined;
+
+      const profilePath = link.getAttribute("href") || "";
+      const profileUrl = profilePath
+        ? new URL(profilePath, "https://www.familytreenow.com").toString()
+        : undefined;
+
+      candidates.push({ name, age, city, state, profileUrl, _index: i });
     }
 
-    const ageText = labeledValue(/^age/i);
-    const age = ageText ? extractAge(`Age ${ageText}`) : undefined;
+    if (candidates.length === 0) {
+      dumpFamilyTreeNowDiagnostics(doc, detailLinks[0].parentElement);
+      return null;
+    }
 
-    const profilePath = head.getAttribute("href") || "";
-    const profileUrl = profilePath
-      ? new URL(profilePath, "https://www.familytreenow.com").toString()
-      : undefined;
+    const picked = pickFtnCandidate(candidates, args);
+    if (!picked) {
+      const summary = candidates
+        .map((c) => `${c.name}${c.age ? "/" + c.age : ""}`)
+        .join("; ");
+      console.info(
+        `[peopleSearch] familytreenow: ${candidates.length} candidate(s) [${summary}] but none matched last name "${args?.last ?? ""}"`
+      );
+      return null;
+    }
 
-    return { name, age, city, state, profileUrl };
+    if (candidates.length > 1) {
+      const summary = candidates
+        .map(
+          (c) =>
+            `${c.name}${c.age ? "/" + c.age : ""}${
+              c.state ? "/" + c.state : ""
+            }`
+        )
+        .join("; ");
+      console.info(
+        `[peopleSearch] familytreenow: picked "${picked.name}"${
+          picked.age ? ", age " + picked.age : ""
+        } from ${candidates.length} candidate(s) [${summary}]`
+      );
+    }
+
+    const { _index, ...match } = picked;
+    return match;
   },
 };
+
+type FtnCandidate = EnrichmentMatch & { _index: number };
+
+// Rank FTN search-result candidates against the input. Last-name match is a
+// hard requirement when we have one — picking a wrong-last-name top result
+// burns a detail fetch and caches a bad enrichment. Among same-last-name
+// candidates: first-name match is strongest, then state, then city. Ties
+// break to the older candidate (more likely the property owner), then to
+// FTN's own page order. When called without args (e.g., the address-only
+// FTN lookup path), the filter and scoring degrade to "oldest wins, page
+// order tiebreaks."
+function pickFtnCandidate(
+  candidates: FtnCandidate[],
+  args?: { first: string; last: string; city: string; state: string }
+): FtnCandidate | null {
+  const inFirst = (args?.first ?? "").trim();
+  const inLast = (args?.last ?? "").trim();
+  const inCity = normalizeCityForCompare(args?.city ?? "");
+  const inState = (args?.state ?? "").trim().toUpperCase();
+
+  const firstWord = (s: string): string =>
+    s.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  const stripSuffix = (s: string): string =>
+    s.replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, "").trim();
+
+  let pool = candidates;
+  if (inLast) {
+    const want = inLast.toLowerCase();
+    pool = candidates.filter((c) => {
+      const cn = splitName(stripSuffix(c.name));
+      return cn.last.toLowerCase() === want;
+    });
+    if (pool.length === 0) return null;
+  }
+
+  const scoreOf = (c: FtnCandidate): number => {
+    let s = 0;
+    if (inFirst) {
+      const cn = splitName(stripSuffix(c.name));
+      if (firstWord(cn.first) === firstWord(inFirst)) s += 3;
+    }
+    if (inState && (c.state || "").trim().toUpperCase() === inState) s += 2;
+    if (inCity && normalizeCityForCompare(c.city || "") === inCity) s += 1;
+    return s;
+  };
+
+  return [...pool].sort((a, b) => {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+    if (sb !== sa) return sb - sa;
+    const ageA = a.age ?? -1;
+    const ageB = b.age ?? -1;
+    if (ageB !== ageA) return ageB - ageA;
+    return a._index - b._index;
+  })[0];
+}
+
+function normalizeCityForCompare(city: string): string {
+  return (city || "")
+    .toLowerCase()
+    .replace(/\bsaint\b/g, "st")
+    .replace(/\bst\.\s*/g, "st ")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Pulls phones, addresses, and relatives off an FTN /search/people/results
 // detail page. Each of those lives in its own panel with a distinct
@@ -1000,7 +1110,7 @@ async function runAdapter(
     );
     return { source: adapter.source, status, fetchedAt };
   }
-  const match = adapter.parse(fetched.html);
+  const match = adapter.parse(fetched.html, args);
   if (!match) {
     console.warn(
       `[peopleSearch] ${adapter.source}: parse returned no match for "${args.first} ${args.last}" — selectors may need updating`

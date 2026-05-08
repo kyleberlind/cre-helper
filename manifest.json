@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Reality Commercial Real Estate Helper",
   "short_name": "Reality",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Side panel for Reonomy property pages: surfaces owner contact info from public people-search sites with one click.",
   "author": { "email": "kyberlind@gmail.com" },
   "homepage_url": "https://textyle.io/privacy",

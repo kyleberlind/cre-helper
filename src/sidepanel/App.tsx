@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import type { ScrapePayload } from "./types";
 import { OwnersView } from "./components/OwnersView";
 import { allTargetsCached, useEnrichments } from "./hooks/useEnrichments";
+import { clearCache } from "./lib/peopleSearchCache";
+
+// Chrome injects `update_url` into the manifest only for store-installed
+// extensions, so its absence is a reliable "loaded unpacked / dev build"
+// signal — unlike import.meta.env.DEV, which is false for any `vite build`
+// output even when we're iterating locally.
+const IS_DEV_BUILD = !chrome.runtime.getManifest()?.update_url;
 
 interface RequestScrapeResponse {
   ok: boolean;
@@ -85,6 +92,19 @@ export default function App() {
         <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
           Property info
         </span>
+        {IS_DEV_BUILD && (
+          <button
+            type="button"
+            onClick={async () => {
+              await clearCache();
+              location.reload();
+            }}
+            title="Wipe stored enrichments and reload (dev only)"
+            className="ml-auto px-2 py-0.5 text-[10px] uppercase tracking-wide rounded border border-amber-400 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-950/40"
+          >
+            Clear cache
+          </button>
+        )}
       </header>
 
       {error && (

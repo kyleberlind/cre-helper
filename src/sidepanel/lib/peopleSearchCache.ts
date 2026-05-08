@@ -66,3 +66,11 @@ export async function setCached(
     /* swallow — cache is best-effort */
   }
 }
+
+export async function clearCache(): Promise<void> {
+  try {
+    await chrome.storage.local.remove(STORAGE_KEY);
+  } catch {
+    /* swallow — cache is best-effort */
+  }
+}
